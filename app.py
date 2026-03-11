@@ -4,7 +4,7 @@ from model_engine import RealTimeHybridForecaster
 
 app = FastAPI()
 # Initialize the engine once with the EXACT filenames
-forecaster = RealTimeHybridForecaster(gru_model_path='tegru.keras', lgb_model_path='lightgbm.pkl')
+forecaster = RealTimeHybridForecaster(gru_model_path='te_gru_custom.keras', lgb_model_path='lightgbm_baseline.pkl')
 
 class GridDataPayload(BaseModel):
     current_features: list
@@ -23,3 +23,4 @@ async def predict_load(payload: GridDataPayload):
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
         
+
