@@ -10,7 +10,7 @@ print("🚀 Initializing FastAPI Server...")
 
 # 1. Boot up the API and the AI Engine
 app = FastAPI(title="Hybrid Energy Forecaster API", version="1.0")
-forecaster = RealTimeHybridForecaster(gru_model_path='tegru.keras', lgb_model_path='lightgbm.pkl')
+forecaster = RealTimeHybridForecaster(gru_model_path='te_gru_custom.keras', lgb_model_path='lightgbm_baseline.pkl')
 
 # 2. Define the Data Contract (What Group 3 MUST send you)
 class GridDataPayload(BaseModel):
@@ -48,4 +48,5 @@ async def predict_load(payload: GridDataPayload):
 # 4. Run the Server
 if __name__ == "__main__":
     print("⚡ Server is live! Waiting for Group 3's controller...")
+
     uvicorn.run(app, host="0.0.0.0", port=8000)
