@@ -88,6 +88,6 @@ class RealTimeHybridForecaster:
                 "active_gru_weight": float(self.current_w),
                 "active_bias_correction": float(self.current_b)
             }
-        }
 
         }
+
