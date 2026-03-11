@@ -1,29 +1,32 @@
+import os
 import numpy as np
 import joblib
 import tensorflow as tf
 from tensorflow.keras.models import load_model
 
+print(f"⚙️ TENSORFLOW VERSION DETECTED: {tf.__version__}")
+
 class RealTimeHybridForecaster:
-    def __init__(self, gru_model_path='tegru.keras', lgb_model_path='lightgbm.pkl'):
+    def __init__(self, gru_model_path='te_gru_custom.keras', lgb_model_path='lightgbm_baseline.pkl'):
         self.window_size = 120
         self.current_w = 0.5
         self.current_b = 0.0
-        self.models_loaded = False
         
-        try:
-            self.te_gru = load_model(gru_model_path)
-            self.lgb_model = joblib.load(lgb_model_path)
-            self.models_loaded = True
-            print("✅ MODELS LOADED SUCCESSFULLY")
-        except Exception as e:
-            print(f"⚠️ LOAD FAILED: {e}")
-            self.te_gru = None
-            self.lgb_model = None
+        base_path = os.path.dirname(os.path.abspath(__file__))
+        gru_full_path = os.path.join(base_path, gru_model_path)
+        lgb_full_path = os.path.join(base_path, lgb_model_path)
+        
+        print(f"🔥 ATTEMPTING TO LOAD GRU FROM: {gru_full_path}")
+        
+        # NO SAFETY NET. IF THIS FAILS, THE SERVER DIES AND LOGS THE TRUTH.
+        self.te_gru = load_model(gru_full_path)
+        
+        print(f"🔥 ATTEMPTING TO LOAD LGB FROM: {lgb_full_path}")
+        self.lgb_model = joblib.load(lgb_full_path)
+        
+        print("✅ MODELS LOADED SUCCESSFULLY")
 
     def predict_next_hour(self, current_features, history_true, history_features):
-        if not self.models_loaded:
-            return {"predicted_load_kw": 50.0, "status": "demo_mode_active_due_to_load_failure"}
-
         curr_feat = np.array(current_features).reshape(1, -1)
         hist_feat = np.array(history_features).reshape(1, 120, -1)
         
