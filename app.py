@@ -1,3 +1,4 @@
+import os
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 import uvicorn
@@ -10,43 +11,47 @@ print("🚀 Initializing FastAPI Server...")
 
 # 1. Boot up the API and the AI Engine
 app = FastAPI(title="Hybrid Energy Forecaster API", version="1.0")
-forecaster = RealTimeHybridForecaster(gru_model_path='te_gru_custom.keras', lgb_model_path='lightgbm_baseline.pkl')
+
+# Ensure we use the exact filenames on GitHub
+forecaster = RealTimeHybridForecaster(
+    gru_model_path='te_gru_custom.keras', 
+    lgb_model_path='lightgbm_baseline.pkl'
+)
 
 # 2. Define the Data Contract (What Group 3 MUST send you)
 class GridDataPayload(BaseModel):
-    current_features: list       # The weather/time data for the NEXT hour (1D array)
-    history_true: list           # The actual KW load for the LAST 120 hours (1D array)
-    history_features: list       # The weather/time data for the LAST 120 hours (2D array)
+    current_features: list    # 1D array of 17 numbers
+    history_true: list       # 1D array of 120 numbers
+    history_features: list    # 2D array of (120, 17)
 
-# 3. Create the Endpoint (The "URL" Group 3 will hit)
+# 3. Create the Endpoint
 @app.post("/predict_load")
 async def predict_load(payload: GridDataPayload):
     try:
-        # Convert Group 3's JSON lists into NumPy arrays for your AI
-        curr_feat_arr = np.array(payload.current_features).reshape(1, 1, -1) # Assuming GRU needs 3D shape (1, 1, features)
-        hist_true_arr = np.array(payload.history_true)
-        hist_feat_arr = np.array(payload.history_features)
+        # Convert lists to NumPy arrays for validation
+        curr_feat = np.array(payload.current_features)
+        hist_true = np.array(payload.history_true)
+        hist_feat = np.array(payload.history_features)
         
         # Check if Group 3 sent the correct 120-hour memory buffer
-        if len(hist_true_arr) != forecaster.window_size:
+        if len(hist_true) != forecaster.window_size:
             raise ValueError(f"history_true must be exactly {forecaster.window_size} hours long.")
 
         # Ask the AI Engine for the prediction
+        # We pass raw arrays; model_engine.py handles the 3D/2D reshaping
         prediction_result = forecaster.predict_next_hour(
-            current_features=curr_feat_arr,
-            history_true=hist_true_arr,
-            history_features=hist_feat_arr
+            current_features=curr_feat,
+            history_true=hist_true,
+            history_features=hist_feat
         )
         
-        # Send the KW prediction back to Group 3
         return prediction_result
         
     except Exception as e:
-        # If Group 3 sends bad data, send them an error message
+        # Send detailed error back to the client
         raise HTTPException(status_code=400, detail=str(e))
 
-# 4. Run the Server
+# 4. Entry point for local testing (Render uses its own start command)
 if __name__ == "__main__":
-    print("⚡ Server is live! Waiting for Group 3's controller...")
-
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run(app, host="0.0.0.0", port=port)
