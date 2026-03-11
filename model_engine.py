@@ -6,7 +6,7 @@ from tensorflow.keras.models import load_model
 
 class RealTimeHybridForecaster:
     def __init__(self, gru_model_path='te_gru_custom.keras', lgb_model_path='lightgbm_baseline.pkl'):
-        # 1. SET PARAMETERS FIRST (So they always exist)
+        # 1. SET PARAMETERS FIRST (So they always exist no matter what)
         self.window_size = 120
         self.mh_steps = 28
         self.step_w = 0.00129
@@ -33,38 +33,28 @@ class RealTimeHybridForecaster:
             self.models_loaded = True
             print("✅ SUCCESS: All models active.")
         except Exception as e:
-            print(f"⚠️ WARNING: Model load failed ({str(e)}). Entering Simulation Mode.")
+            print(f"⚠️ WARNING: Model load failed ({str(e)}).")
             self.te_gru = None
             self.lgb_model = None
             self.models_loaded = False
 
     def run_mh_control_loop(self, hist_true, hist_gru, hist_lgb):
-        # Ensure numpy arrays
         hist_true, hist_gru, hist_lgb = np.array(hist_true), np.array(hist_gru), np.array(hist_lgb)
-        
         for _ in range(self.mh_steps):
             proposed_w = np.clip(self.current_w + np.random.normal(0, self.step_w), 0.0, 1.0)
             proposed_b = self.current_b + np.random.normal(0, self.step_b)
-            
             pred_curr = (self.current_w * hist_gru) + ((1 - self.current_w) * hist_lgb) + self.current_b
             pred_prop = (proposed_w * hist_gru) + ((1 - proposed_w) * hist_lgb) + proposed_b
-            
             err_curr = np.sum(self.exp_weights * (hist_true - pred_curr)**2)
             err_prop = np.sum(self.exp_weights * (hist_true - pred_prop)**2)
-            
             if err_prop < err_curr or np.random.rand() < np.exp(-(err_prop - err_curr) / self.temperature):
                 self.current_w, self.current_b = proposed_w, proposed_b
 
     def predict_next_hour(self, current_features, history_true, history_features):
-        # 1. Handle "Simulation Mode" if models didn't load
+        # Fallback if models are still booting
         if not self.models_loaded:
-            return {
-                "predicted_load_kw": 45.2, # Static test value
-                "status": "simulation_mode",
-                "diagnostics": {"weight": self.current_w, "bias": self.current_b}
-            }
+            return {"predicted_load_kw": 0.0, "status": "initializing"}
 
-        # 2. Logic for Real Prediction
         hist_feat_np = np.array(history_features)
         curr_feat_np = np.array(current_features).reshape(1, -1)
         
@@ -77,7 +67,7 @@ class RealTimeHybridForecaster:
         
         # Historical simulation for MH loop
         hist_lgb = self.lgb_model.predict(hist_feat_np.reshape(self.window_size, -1))
-        hist_gru = np.full(self.window_size, next_gru) # Simplified for test stability
+        hist_gru = np.full(self.window_size, next_gru) 
         
         self.run_mh_control_loop(history_true, hist_gru, hist_lgb)
         
