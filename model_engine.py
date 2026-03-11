@@ -57,21 +57,29 @@ class RealTimeHybridForecaster:
     def predict_next_hour(self, current_features, history_true, history_features):
         """
         The main function Group 3's API will call. 
-        It updates the AI's internal trust, then spits out the final KW prediction.
+        It formats data independently for the GRU and LightGBM models.
         """
-        # 1. Generate historical predictions for the 120-hour memory buffer
-        # (In production, you'd cache these so you don't re-predict 120 hours every time)
-        hist_gru = self.te_gru.predict(history_features, verbose=0).flatten()
-        hist_lgb = self.lgb_model.predict(history_features)
+        # 1. Format data correctly for BOTH models
+        # GRU strictly needs 3D data: (Batch, Time Steps, Features)
+        gru_hist_feat = history_features.reshape(self.window_size, 1, -1)
+        gru_curr_feat = current_features.reshape(1, 1, -1)
         
-        # 2. Run the dynamic control loop to find the perfect current_w and current_b
+        # LightGBM strictly needs 2D data: (Batch, Features)
+        lgb_hist_feat = history_features.reshape(self.window_size, -1)
+        lgb_curr_feat = current_features.reshape(1, -1)
+        
+        # 2. Generate historical predictions for the 120-hour memory buffer
+        hist_gru = self.te_gru.predict(gru_hist_feat, verbose=0).flatten()
+        hist_lgb = self.lgb_model.predict(lgb_hist_feat)
+        
+        # 3. Run the dynamic control loop to find the perfect current_w and current_b
         self.run_mh_control_loop(history_true, hist_gru, hist_lgb)
         
-        # 3. Generate the pure predictions for the single NEXT hour
-        next_gru = self.te_gru.predict(current_features, verbose=0)[0][0]
-        next_lgb = self.lgb_model.predict(current_features)[0]
+        # 4. Generate the pure predictions for the single NEXT hour
+        next_gru = self.te_gru.predict(gru_curr_feat, verbose=0).flatten()[0]
+        next_lgb = self.lgb_model.predict(lgb_curr_feat)[0]
         
-        # 4. Apply the optimized state for the final output
+        # 5. Apply the optimized state for the final output
         final_prediction = (self.current_w * next_gru) + ((1 - self.current_w) * next_lgb) + self.current_b
         
         return {
@@ -80,4 +88,6 @@ class RealTimeHybridForecaster:
                 "active_gru_weight": float(self.current_w),
                 "active_bias_correction": float(self.current_b)
             }
+        }
+
         }
