@@ -1,11 +1,10 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-import numpy as np
 from model_engine import RealTimeHybridForecaster
 
 app = FastAPI()
-# Initialize the engine once
-forecaster = RealTimeHybridForecaster()
+# Initialize the engine once with the EXACT filenames
+forecaster = RealTimeHybridForecaster(gru_model_path='tegru.keras', lgb_model_path='lightgbm.pkl')
 
 class GridDataPayload(BaseModel):
     current_features: list
@@ -15,7 +14,6 @@ class GridDataPayload(BaseModel):
 @app.post("/predict_load")
 async def predict_load(payload: GridDataPayload):
     try:
-        # Just pass the lists directly to the engine
         result = forecaster.predict_next_hour(
             payload.current_features, 
             payload.history_true, 
@@ -24,3 +22,4 @@ async def predict_load(payload: GridDataPayload):
         return result
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+        
