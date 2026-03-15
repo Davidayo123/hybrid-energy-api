@@ -1,87 +1,87 @@
 import numpy as np
+from datetime import datetime
 import joblib
-import tflite_runtime.interpreter as tflite  # Lightweight library for the Pi 5
+import ai_edge_litert.interpreter as tflite
 
 class LocalEdgeForecaster:
     def __init__(self, tflite_path='te_gru_true_edge.tflite', lgb_path='lightgbm_baseline.pkl', scaler_path='scaler.joblib'):
         print("⚙️ Booting Master-Slave AI Hub...")
-        
-        # 1. Load Preprocessing & LightGBM
         self.scaler = joblib.load(scaler_path)
         self.lgb_model = joblib.load(lgb_path)
         
-        # 2. Load TFLite Model (TE-GRU)
         self.interpreter = tflite.Interpreter(model_path=tflite_path)
         self.interpreter.allocate_tensors()
         self.input_details = self.interpreter.get_input_details()
         self.output_details = self.interpreter.get_output_details()
         
-        # Metropolis-Hastings Adaptive Weights (Hybrid Logic)
         self.current_w = 0.5
         self.current_b = 0.0
-        
-        # Uncertainty Estimation (Upper Bound Margin)
-        # Adjust this value based on your model's actual RMSE/MAE
         self.uncertainty_margin_kw = 0.15 
-        
         print("✅ Hybrid Edge Models Loaded Successfully!")
 
-    def predict(self, current_hour_data):
-        """
-        Takes raw ESP32 sensor array (1, 17) and outputs Smart Grid thresholds.
-        ⚠️ Format: [Energy, Temp, Humidity, Lux, Occupancy, Hour, DayOfWeek...]
-        """
-        scaled_curr = np.copy(current_hour_data)
+    def build_features_and_predict(self, raw_data_dict):
+        # 1. Parse Time
+        dt = datetime.strptime(raw_data_dict['timestamp'], "%Y-%m-%d %H:%M:%S")
+        hour = dt.hour
+        day_of_week = dt.weekday()
+        is_weekend = 1 if day_of_week >= 5 else 0
         
-        # Scale ONLY the 4 physical continuous variables
-        scaled_curr[:, 0:4] = self.scaler.transform(scaled_curr[:, 0:4])
+        # 2. Mathematical Time Embeddings
+        hour_sin = np.sin(2 * np.pi * hour / 24)
+        hour_cos = np.cos(2 * np.pi * hour / 24)
+        day_sin = np.sin(2 * np.pi * day_of_week / 7)
+        day_cos = np.cos(2 * np.pi * day_of_week / 7)
+        month_sin = np.sin(2 * np.pi * dt.month / 12)
+        month_cos = np.cos(2 * np.pi * dt.month / 12)
+
+        # 3. Handle the Scaler 
+        temp_env_array = np.zeros((1, 4))
+        temp_env_array[0, 1] = raw_data_dict['temperature_c']
+        temp_env_array[0, 2] = raw_data_dict['humidity']
+        temp_env_array[0, 3] = raw_data_dict['lux']
+        scaled_env = self.scaler.transform(temp_env_array)
+        scaled_temp = scaled_env[0, 1]
+        scaled_humidity = scaled_env[0, 2]
+        scaled_lux = scaled_env[0, 3]
+
+        temp_lag_array = np.zeros((4, 4))
+        temp_lag_array[0, 0] = raw_data_dict['lag_1h']
+        temp_lag_array[1, 0] = raw_data_dict['lag_2h']
+        temp_lag_array[2, 0] = raw_data_dict['lag_3h']
+        temp_lag_array[3, 0] = raw_data_dict['lag_24h']
+        scaled_lags = self.scaler.transform(temp_lag_array)
+        scaled_lag_1h = scaled_lags[0, 0]
+        scaled_lag_2h = scaled_lags[1, 0]
+        scaled_lag_3h = scaled_lags[2, 0]
+        scaled_lag_24h = scaled_lags[3, 0]
+
+        # 4. Build the Final 17-Feature Array
+        raw_array = np.array([[
+            scaled_temp, scaled_humidity, scaled_lux, raw_data_dict['occupancy'],
+            hour, day_of_week, is_weekend,
+            hour_sin, hour_cos, day_sin, day_cos, month_sin, month_cos,
+            scaled_lag_1h, scaled_lag_2h, scaled_lag_3h, scaled_lag_24h
+        ]], dtype=np.float32)
+
+        # 5. Inference
+        pred_lgb_scaled = float(self.lgb_model.predict(raw_array)[0])
         
-        # LightGBM Inference
-        pred_lgb = float(self.lgb_model.predict(scaled_curr)[0])
-        
-        # TE-GRU Inference
-        input_data = np.array(scaled_curr, dtype=np.float32)
-        input_data = input_data.reshape(self.input_details[0]['shape']) 
+        input_data = raw_array.reshape(self.input_details[0]['shape']) 
         self.interpreter.set_tensor(self.input_details[0]['index'], input_data)
         self.interpreter.invoke() 
-        pred_gru = float(self.interpreter.get_tensor(self.output_details[0]['index'])[0][0])
+        pred_gru_scaled = float(self.interpreter.get_tensor(self.output_details[0]['index'])[0][0])
         
-        # Calculate Mean Prediction
-        mean_kw = (self.current_w * pred_gru) + ((1 - self.current_w) * pred_lgb) + self.current_b
+        # 6. Mean Prediction (Scaled) & Inverse Transform
+        mean_scaled = (self.current_w * pred_gru_scaled) + ((1 - self.current_w) * pred_lgb_scaled) + self.current_b
         
-        # Calculate Upper Bound for Group 3's Load Shedding Logic
+        inverse_array = np.zeros((1, 4))
+        inverse_array[0, 0] = mean_scaled
+        mean_kw = float(self.scaler.inverse_transform(inverse_array)[0, 0])
+        
+        # 7. Add safety margin for Group 3 SSR logic
         upper_bound_kw = mean_kw + self.uncertainty_margin_kw
         
-        # Return a dictionary so the Django/MQTT backend can easily parse it
         return {
             "mean_prediction_kw": round(mean_kw, 3),
             "upper_bound_kw": round(upper_bound_kw, 3)
         }
-
-# ==========================================
-# GROUP 3 INTEGRATION TEMPLATE
-# ==========================================
-if __name__ == "__main__":
-    # 1. AI initialized on Pi boot
-    forecaster = LocalEdgeForecaster()
-    
-    # 2. Simulated ESP32 Data arriving via Mosquitto MQTT
-    # This array represents the 17 features queried from the local SQLite database
-    live_sensor_array = np.random.rand(1, 17) 
-    
-    # 3. Run Inference
-    ai_results = forecaster.predict(live_sensor_array)
-    print(f"📊 AI Mean Forecast: {ai_results['mean_prediction_kw']} kW")
-    print(f"🚨 AI Upper Bound (Safety Limit): {ai_results['upper_bound_kw']} kW")
-    
-    # 4. Simulated Group 3 Control Logic (Relay Actuation)
-    simulated_battery_soc = 65.0 # Voltage divider reading
-    battery_stable = True        # 3-Time Battery Lag Algorithm result
-    
-    if battery_stable:
-        if ai_results['upper_bound_kw'] > 2.0 and simulated_battery_soc < 50.0:
-            print("⚡ Action: Switching to Smart Mode C (Conservation). Shedding Class A & B SSRs.")
-        elif ai_results['upper_bound_kw'] > 1.0 and simulated_battery_soc < 80.0:
-            print("⚡ Action: Switching to Smart Mode B (Average). Shedding Class A SSRs.")
-        else:
-            print("⚡ Action: Switching to Smart Mode A (Maximum). All Relays Authorized.")
