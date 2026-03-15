@@ -1,26 +1,21 @@
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
-from model_engine import RealTimeHybridForecaster
+from flask import Flask, request, jsonify
+from local_inference_wrapper import LocalEdgeForecaster
 
-app = FastAPI()
-# Initialize the engine once with the EXACT filenames
-forecaster = RealTimeHybridForecaster(gru_model_path='te_gru_custom.keras', lgb_model_path='lightgbm_baseline.pkl')
+app = Flask(__name__)
 
-class GridDataPayload(BaseModel):
-    current_features: list
-    history_true: list
-    history_features: list
+print("Starting Local Edge API and loading AI models...")
+ai_brain = LocalEdgeForecaster()
+print("AI API is live and listening on port 5000!")
 
-@app.post("/predict_load")
-async def predict_load(payload: GridDataPayload):
+@app.route('/predict', methods=['POST'])
+def predict_energy():
     try:
-        result = forecaster.predict_next_hour(
-            payload.current_features, 
-            payload.history_true, 
-            payload.history_features
-        )
-        return result
+        incoming_data = request.get_json()
+        results = ai_brain.build_features_and_predict(incoming_data)
+        return jsonify(results), 200
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
-        
+        return jsonify({"error": str(e)}), 400
 
+if __name__ == '__main__':
+    # host='127.0.0.1' ensures it only runs offline on the local hardware
+    app.run(host='127.0.0.1', port=5000, debug=False)
