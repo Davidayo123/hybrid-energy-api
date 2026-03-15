@@ -5,7 +5,7 @@ import ai_edge_litert.interpreter as tflite
 
 class LocalEdgeForecaster:
     def __init__(self, tflite_path='te_gru_true_edge.tflite', lgb_path='lightgbm_baseline.pkl', scaler_path='scaler.joblib'):
-        print("⚙️ Booting Master-Slave AI Hub...")
+        print("Booting Master-Slave AI Hub...")
         self.scaler = joblib.load(scaler_path)
         self.lgb_model = joblib.load(lgb_path)
         
@@ -17,7 +17,7 @@ class LocalEdgeForecaster:
         self.current_w = 0.5
         self.current_b = 0.0
         self.uncertainty_margin_kw = 0.15 
-        print("✅ Hybrid Edge Models Loaded Successfully!")
+        print("Hybrid Edge Models Loaded Successfully!")
 
     def build_features_and_predict(self, raw_data_dict):
         # 1. Parse Time
