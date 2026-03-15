@@ -6,9 +6,9 @@ from local_inference_wrapper import LocalEdgeForecaster
 # 1. Initialize FastAPI
 app = FastAPI(title="Smart Grid AI Edge API")
 
-print("⏳ Starting Local FastAPI Server and loading AI models...")
+print("Starting Local FastAPI Server and loading AI models...")
 ai_brain = LocalEdgeForecaster()
-print("✅ AI API is live and listening on port 5000!")
+print("AI API is live and listening on port 5000!")
 
 # 2. Pydantic Model for strict data validation
 class SensorData(BaseModel):
