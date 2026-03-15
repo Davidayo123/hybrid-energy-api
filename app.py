@@ -1,7 +1,7 @@
-from flask import Flask, request, jsonify
+from fastapi import FastAPI, request, jsonify
 from local_inference_wrapper import LocalEdgeForecaster
 
-app = Flask(__name__)
+app = FastAPI()
 
 print("Starting Local Edge API and loading AI models...")
 ai_brain = LocalEdgeForecaster()
